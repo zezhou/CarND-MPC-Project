@@ -1,6 +1,122 @@
 # CarND-Controls-MPC
 Self-Driving Car Engineer Nanodegree Program
 
+This repository contains my solution to the MPC project. The vehicle successfully drive a lap around the track. Neither tire leave the drivable portion of the track surface, nor the car pop up onto ledges or roll over any surfaces.
+
+## The Model
+
+The model is the same as described in the course. It includes the state, actuators and update equations as follows:
+
+### The state
+
+The kinematic model includes the vehicle's x and y coordinates, orientation angle (psi), and velocity, as well as the cross-track error and psi error (epsi).
+
+    double x = state[0];
+    double y = state[1];
+    double psi = state[2];
+    double v = state[3];
+    double cte = state[4];
+    double epsi = state[5];
+
+### The actuators
+
+Actuator outputs are acceleration and delta (steering angle).
+
+### The update equations for the model
+
+    x[t+1] = x[t] + v[t] * cos(psi[t]) * dt
+    y[t+1] = y[t] + v[t] * sin(psi[t]) * dt
+    psi[t+1] = psi[t] + v[t] / Lf * delta[t] * dt
+    v[t+1] = v[t] + a[t] * dt
+    cte[t + t] = cte[t] - (y[t] + (v[t] * sin(epsi[t]) * dt));
+    epsi[t + 1] = epsi[t] - ((psi[t] - psides[t]) - v[t] * delta[t] / Lf * dt);
+
+
+### Cost
+
+The cost function based mostly on the vehicle's cross-track error and orientation angle error. It   also included other cost factors suggested in the lessons. Inpiring from PID project, an additional cost penalizing the combination of velocity and delta to improve performance are included.
+
+I used gflags library to optimize parameters without rebuild the whole appliction.
+
+
+    // cost function
+    fg[0] = 0;
+    // consider cte, epsi and velocity chenages into cost  keep its value small
+    for (int t = 0; t < N; t++) {
+      fg[0] += FLAGS_CET_COST_COEFFICIENT * CppAD::pow(vars[cte_start + t], 2);
+      fg[0] += FLAGS_EPSI_COST_COEFFICIENT * CppAD::pow(vars[epsi_start + t], 2);
+      fg[0] += FLAGS_V_COST_COEFFICIENT * CppAD::pow(vars[v_start + t] - ref_v, 2);
+    }
+    
+    // cosider delta, accelarate into cost to keep its value small.
+    for (int t = 0; t < N - 1; t++) {
+      fg[0] += FLAGS_DELTA_COST_COEFFICIENT * CppAD::pow(vars[delta_start + t], 2);
+      fg[0] += FLAGS_A_COST_COEFFICIENT * CppAD::pow(vars[a_start + t], 2);
+      // try adding penalty for speed + steer
+      fg[0] += 700 * CppAD::pow(vars[delta_start + t] * vars[v_start + t], 2);
+    }
+    
+    // cosider delta, accelarate changes into cost to make it low oscillatory
+    for (int t = 0; t < N - 2; t++) {
+      fg[0] += FLAGS_DELTA_DIFF_COST_COEFFICIENT * CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+      fg[0] += FLAGS_A_DIFF_COST_COEFFICIENT * CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+    }
+
+
+## Timestep Length and Elapsed Duration (N & dt)
+
+I chosen 10 in timestep length parameter (N) and 0.1s in elapsed duration between timesteps parameter (dt).
+
+The reasoning I the chosen 10 as timestep length is to balance the performance and efficiency of the program. Larger timestep length parameter makes program available to compute more steps. This makes the output trajectory more smooth and accuracy. But it spends more computing resources thus causes the system slowly and more latency. Finally I found that 10 is a good parameter to balance the performance and the efficiency.
+
+To simplify the calculating of the model, I chosen the elapsed duration as the same as the latency of the system, which is 0.1s.
+
+## Polynomial Fitting and MPC Preprocessing
+
+I used Eigen library to solve polynomial fitting to waypoints:
+
+
+    Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order) {
+      Eigen::MatrixXd A(xvals.size(), order + 1);
+      for (int i = 0; i < xvals.size(); i++) {
+        A(i, 0) = 1.0;
+      }
+      for (int j = 0; j < xvals.size(); j++) {
+        for (int i = 0; i < order; i++) {
+        A(j, i + 1) = A(j, i) * xvals(j);
+      }
+    }
+    auto Q = A.householderQr();
+    auto result = Q.solve(yvals);
+    return result;
+    }
+
+Before I fitting waypoints, I transformed the waypoins from world coordinate to car coordinate to simplify model calculate. After the transforming, the vehicle's x and y coordinates are now at the origin (0, 0) and the orientation angle is also zero.
+
+    Point world_coordinate2vehicle_coordinate(const Point& world_coordinate_point,
+        const Point& car_point, const double theta) {
+      Point point;
+      double dx = world_coordinate_point.x - car_point.x;
+      double dy = world_coordinate_point.y - car_point.y;
+      point.x = dx * cos(-theta) - dy * sin(-theta);
+      point.y = dx * sin(-theta) + dy * cos(-theta);
+      return point;
+    }
+
+I also use lake_track_waypoint.csv to fit MPC coeffients before I run appliction in simulators. The codes can be see in debug.cpp.
+
+
+## Model Predictive Control with Latency
+
+The project add a 100 ms latency before the program responsing to the simulator. In other word, the actuations are not changing in this 100 ms. Considerating we use 0.1s as elapsed duration, which is the same as the latency, we can address this latency porblem by using the actuations from the 0.2s, which value is 0.1s in the original kinematic equations.
+
+  AD<double> delta0 = vars[delta_start + t - 1];
+  AD<double> a0 = vars[a_start + t - 1];
+  if (t > 1) {   // use previous actuations (to account for latency)
+    a0 = vars[a_start + t - 2];
+    delta0 = vars[delta_start + t - 2];
+  }
+
 ---
 
 ## Dependencies
