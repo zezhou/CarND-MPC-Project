@@ -5,19 +5,19 @@
 //#include "MPC_gflags.h"
 #include <iostream>
 
-double FLAGS_CET_COST_COEFFICIENT = 3000;
-double FLAGS_EPSI_COST_COEFFICIENT=3000;
-double FLAGS_V_COST_COEFFICIENT=20;
-double FLAGS_DELTA_COST_COEFFICIENT=10;
-double FLAGS_DELTA_DIFF_COST_COEFFICIENT=200;
-double FLAGS_A_COST_COEFFICIENT=10;
-double FLAGS_A_DIFF_COST_COEFFICIENT=10;
+double FLAGS_CET_COST_COEFFICIENT = 10000;
+double FLAGS_EPSI_COST_COEFFICIENT=10000;
+double FLAGS_V_COST_COEFFICIENT=5;
+double FLAGS_DELTA_COST_COEFFICIENT=50;
+double FLAGS_DELTA_DIFF_COST_COEFFICIENT=5;
+double FLAGS_A_COST_COEFFICIENT=5;
+double FLAGS_A_DIFF_COST_COEFFICIENT=5;
+
 
 using CppAD::AD;
 
 // Set the timestep length and duration
 size_t N = 10;
-// double dt = 0.05;
 double dt = 0.1;
 const double latency = 0.1; // s
 // This value assumes the model presented in the classroom is used.
@@ -30,8 +30,8 @@ const double latency = 0.1; // s
 // presented in the classroom matched the previous radius.
 //
 // This is the length from front to CoG that has a similar radius.
-const double Lf = 2.67;
-double ref_v = 40; // base velocity of vehicle 
+const double Lf = 2.67; 
+double ref_v = 80; // base velocity of vehicle 
 
 size_t x_start = 0;
 size_t y_start = x_start + N;
@@ -40,7 +40,7 @@ size_t v_start = psi_start + N;
 size_t cte_start = v_start + N;
 size_t epsi_start = cte_start + N;
 size_t delta_start = epsi_start + N;
-size_t a_start = delta_start + N -1; // @NOTE fix me
+size_t a_start = delta_start + N -1;
 
 class FG_eval {
  public:
@@ -66,10 +66,9 @@ class FG_eval {
     
     // cosider delta, accelarate into cost to keep its value small.
     for (int t = 0; t < N - 1; t++) {
+      fg[0] += 250*CppAD::pow((vars[delta_start + t])*vars[a_start + t], 2);
       fg[0] += FLAGS_DELTA_COST_COEFFICIENT * CppAD::pow(vars[delta_start + t], 2);
       fg[0] += FLAGS_A_COST_COEFFICIENT * CppAD::pow(vars[a_start + t], 2);
-      // try adding penalty for speed + steer
-      fg[0] += 700 * CppAD::pow(vars[delta_start + t] * vars[v_start + t], 2);
     }
     
     // cosider delta, accelarate changes into cost to make it low oscillatory
@@ -101,12 +100,11 @@ class FG_eval {
       AD<double> v0 = vars[v_start + t - 1];
       AD<double> cte0 = vars[cte_start + t - 1];
       AD<double> epsi0 = vars[epsi_start + t - 1]; 
+		
+      //actuation
       AD<double> delta0 = vars[delta_start + t - 1];
       AD<double> a0 = vars[a_start + t - 1];
-      if (t > 1) {   // use previous actuations (to account for latency)
-        a0 = vars[a_start + t - 2];
-        delta0 = vars[delta_start + t - 2];
-      }
+
       AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2] * CppAD::pow(x0, 2) + coeffs[3] * CppAD::pow(x0, 3);
       AD<double> psides0 = CppAD::atan(coeffs[1] + 2 * coeffs[2] * x0 + 3 * coeffs[3] * CppAD::pow(x0, 2));
 
@@ -181,7 +179,7 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 
   Dvector vars_lowerbound(n_vars);
   Dvector vars_upperbound(n_vars);
-  // TODO: Set lower and upper limits for variables.
+  // Set lower and upper limits for variables.
 
   // Set all non-actuators upper and lowerlimits
   // to the max negative and positive values.
@@ -276,8 +274,8 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
       result.insert(result.end(), {solution.x[x_start + i + 1],   solution.x[y_start + i + 1],
       solution.x[psi_start + i + 1], solution.x[v_start + i + 1],
       solution.x[cte_start + i + 1], solution.x[epsi_start + i + 1],
-      solution.x[delta_start + i + 1],   solution.x[a_start + i]});
+      solution.x[delta_start + i],   solution.x[a_start + i]});
   }
 
-return result;
+  return result;
 }
